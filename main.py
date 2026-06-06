@@ -915,7 +915,8 @@ El documento que debes analizar es el siguiente:
         messages.append({"role": "user", "content": message})
         
         # Llamar a Gemini
-        gemini_key = "AQ.Ab8RN6LQ4rJ5PyQIt8ouNxvnhEepwihs_06dbKECdHIe2GdxdQ"
+        import os
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
@@ -936,7 +937,7 @@ El documento que debes analizar es el siguiente:
     except Exception as e:
         print("[CatFileAPI] Error en chat: {}".format(str(e)))
         raise HTTPException(status_code=500, detail=str(e))
-        
+
 @app.post("/assistant")
 async def pdf_assistant(
     file: UploadFile = File(...),
