@@ -3,6 +3,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import StreamingResponse
 import pymupdf
 import io
+import uuid
+import os
 
 app = FastAPI(title="CatFile API", description="API para edición profesional de PDFs 🐾")
 
@@ -850,7 +852,91 @@ class PDFAssistantService:
         doc.close()
         return info
 
+pdf_storage = {}
 
+@app.post("/pdf/upload")
+async def upload_pdf(file: UploadFile = File(...)):
+    """Sube un PDF y devuelve un ID para referenciarlo"""
+    try:
+        print("[CatFileAPI] Subiendo PDF: {}".format(file.filename))
+        content = await file.read()
+        pdf_id = str(uuid.uuid4())
+        
+        # Extraer texto del PDF
+        doc = pymupdf.open(stream=content, filetype="pdf")
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+        doc.close()
+        
+        # Guardar en memoria
+        pdf_storage[pdf_id] = {
+            "content": content,
+            "text": full_text,
+            "filename": file.filename
+        }
+        
+        print("[CatFileAPI] PDF subido con ID: {}".format(pdf_id))
+        return {"pdf_id": pdf_id, "filename": file.filename}
+    except Exception as e:
+        print("[CatFileAPI] Error en upload: {}".format(str(e)))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/pdf/chat")
+async def chat_with_pdf(
+    pdf_id: str = Form(...),
+    message: str = Form(...),
+    history: str = Form("[]")
+):
+    """Chat con el PDF usando Gemini"""
+    try:
+        import json
+        import httpx
+        
+        print("[CatFileAPI] Chat request - PDF: {}, Message: {}".format(pdf_id, message))
+        
+        if pdf_id not in pdf_storage:
+            raise HTTPException(status_code=404, detail="PDF no encontrado")
+        
+        pdf_text = pdf_storage[pdf_id]["text"]
+        chat_history = json.loads(history)
+        
+        # Construir prompt para Gemini
+        system_prompt = """Eres Catfile 🐾, un asistente profesional que ayuda a los usuarios a entender y editar sus documentos PDF.
+        
+El documento que debes analizar es el siguiente:
+
+{}""".format(pdf_text[:50000])  # Limitar texto
+        
+        messages = [{"role": "user", "content": system_prompt}]
+        for h in chat_history:
+            messages.append(h)
+        messages.append({"role": "user", "content": message})
+        
+        # Llamar a Gemini
+        gemini_key = "AQ.Ab8RN6LQ4rJ5PyQIt8ouNxvnhEepwihs_06dbKECdHIe2GdxdQ"
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
+                json={
+                    "contents": [{"parts": [{"text": msg["content"]}], "role": msg["role"] if msg["role"] == "user" else "model"} for msg in messages],
+                    "generationConfig": {"maxOutputTokens": 1000}
+                }
+            )
+        
+        result = response.json()
+        reply = result["candidates"][0]["content"]["parts"][0]["text"]
+        
+        print("[CatFileAPI] Chat response generated")
+        return {"reply": reply, "pdf_id": pdf_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[CatFileAPI] Error en chat: {}".format(str(e)))
+        raise HTTPException(status_code=500, detail=str(e))
+        
 @app.post("/assistant")
 async def pdf_assistant(
     file: UploadFile = File(...),
