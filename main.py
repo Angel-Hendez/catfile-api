@@ -1033,9 +1033,7 @@ Si no puedes realizar la operación, devuelve {{"operations": [], "explanation":
 """.format(total_pages=total_pages, instruction=instruction)
         
         # 3. Llamar a Gemini
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        if not gemini_key:
-            raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
+      gemini_key = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6L9_eI-ZyrrOzCnpPPKJjxZNF9Eggwj930LXz-KCMNSnw")
         
         contents = [{
             "role": "user",
