@@ -1,4 +1,4 @@
-from typing import Optional
+main from typing import Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
 from auth import get_current_user, require_auth, check_usage, get_user_plan, save_pdf_to_db, load_pdf_from_db
 from fastapi.responses import StreamingResponse
@@ -990,12 +990,12 @@ async def pdf_assistant(
 ):
     """Intérprete de instrucciones en lenguaje natural para operaciones PDF
     
-    Usa exactamente la misma lógica que los endpoints manuales a través de PDFAssistantService.
+    Usa Gemini AI para interpretar instrucciones y PDFAssistantService para ejecutarlas.
     
     Ejemplos:
     - "Elimina la página 5 y agrega una página en blanco al final."
-    - "Cambia Juan por Omar y elimina la imagen principal."
-    - "Reemplaza contrato por convenio."
+    - "Cambia Juan por Omar"
+    - "Reordena las páginas como 2,0,1"
     """
     try:
         print("[CatFileAPI] [Assistant] Nueva solicitud: {}".format(instruction))
@@ -1003,23 +1003,86 @@ async def pdf_assistant(
         content = await file.read()
         doc = pymupdf.open(stream=content, filetype="pdf")
         
-        # 1. Parsear instrucción
-        parser = PDFAssistantParser(language="es")
-        operations = parser.parse(instruction, doc)
-        
-        print("[CatFileAPI] [Assistant] Operaciones detectadas: {}".format(len(operations)))
-        for i, op in enumerate(operations, 1):
-            print("[CatFileAPI]   {}. {}".format(i, op["description"]))
+        # 1. Extraer texto del PDF para contexto
+        print("[CatFileAPI] [Assistant] Extrayendo texto del PDF")
+        pdf_text = ""
+        for page in doc:
+            pdf_text += page.get_text()
+        total_pages = len(doc)
         
         doc.close()
         
-        # 2. Ejecutar operaciones usando el servicio centralizado
+        # 2. Construir prompt para Gemini
+        print("[CatFileAPI] [Assistant] Enviando solicitud a Gemini")
+        system_prompt = """Eres un asistente que interpreta instrucciones para editar PDFs.
+El documento tiene {total_pages} páginas.
+
+Instrucción del usuario: "{instruction}"
+
+Responde SOLO con un JSON válido con esta estructura:
+{{
+    "operations": [
+        {{"operation": "delete_page", "params": {{"pages": [0]}}}},
+        {{"operation": "add_page", "params": {{"position": -1}}}},
+        {{"operation": "edit_text", "params": {{"old_text": "...", "new_text": "...", "page_num": 0}}}},
+        {{"operation": "reorder_pages", "params": {{"order": [0,1,2]}}}}
+    ],
+    "explanation": "Explicación breve de lo que se hará"
+}}
+
+Operaciones disponibles: delete_page, add_page, edit_text, reorder_pages
+Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
+""".format(total_pages=total_pages, instruction=instruction)
+        
+        # 3. Llamar a Gemini
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        if not gemini_key:
+            raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
+        
+        contents = [{
+            "role": "user",
+            "parts": [{"text": system_prompt}]
+        }]
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
+                json={
+                    "contents": contents,
+                    "generationConfig": {
+                        "maxOutputTokens": 1024,
+                        "temperature": 0.3,
+                        "responseMimeType": "application/json"
+                    }
+                }
+            )
+        
+        if response.status_code != 200:
+            print("[CatFileAPI] Gemini error: {}".format(response.text))
+            raise HTTPException(status_code=502, detail="Error al contactar Gemini")
+        
+        result = response.json()
+        try:
+            reply = result["candidates"][0]["content"]["parts"][0]["text"]
+            print("[CatFileAPI] [Assistant] Respuesta Gemini: {}".format(reply))
+            parsed = json.loads(reply)
+            operations = parsed.get("operations", [])
+            explanation = parsed.get("explanation", "")
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            print("[CatFileAPI] Error parseando respuesta Gemini: {}".format(str(e)))
+            raise HTTPException(status_code=502, detail="Respuesta inesperada de Gemini")
+        
+        print("[CatFileAPI] [Assistant] Operaciones detectadas: {}".format(len(operations)))
+        for i, op in enumerate(operations, 1):
+            print("[CatFileAPI]   {}. {}".format(i, op))
+        
+        # 4. Ejecutar operaciones usando el servicio centralizado
         executed = []
         pdf_state = content
         
         for op in operations:
-            op_type = op["operation"]
-            params = op["params"]
+            op_type = op.get("operation")
+            params = op.get("params", {})
             
             try:
                 if op_type == "delete_page":
@@ -1039,34 +1102,10 @@ async def pdf_assistant(
                     pdf_state = await PDFAssistantService.edit_text_service(
                         pdf_state, params["old_text"], params["new_text"], params["page_num"]
                     )
-                    
-                elif op_type == "delete_image":
-                    print("[CatFileAPI] [Assistant] Ejecutando: {}".format(op_type))
-                    pdf_state = await PDFAssistantService.delete_image_service(
-                        pdf_state, params["page_num"], params["image_index"]
-                    )
-                    
-                elif op_type == "get_text":
-                    # Solo consulta, no modifica
-                    print("[CatFileAPI] [Assistant] get_text - solo consulta")
-                    pass
-                    
-                elif op_type == "get_images":
-                    # Solo consulta, no modifica
-                    print("[CatFileAPI] [Assistant] get_images - solo consulta")
-                    pass
-                    
-                elif op_type == "add_signature":
-                    return {
-                        "error": True,
-                        "message": "Para añadir firma, usa el endpoint /pdf/add-signature directamente",
-                        "operations": operations
-                    }
                 
                 executed.append({
                     "operation": op_type,
-                    "status": "success",
-                    "description": op["description"]
+                    "status": "success"
                 })
                 print("[CatFileAPI] [Assistant] ✓ {}".format(op_type))
                 
@@ -1074,29 +1113,26 @@ async def pdf_assistant(
                 executed.append({
                     "operation": op_type,
                     "status": "error",
-                    "error": str(e),
-                    "description": op["description"]
+                    "error": str(e)
                 })
                 print("[CatFileAPI] [Assistant] ✗ {}: {}".format(op_type, str(e)))
                 raise
         
-        # 3. Retornar PDF modificado
+        # 5. Retornar PDF modificado
         output = io.BytesIO(pdf_state)
         
-        print("[CatFileAPI] [Assistant] Todas las operaciones completadas exitosamente")
+        print("[CatFileAPI] [Assistant] Todas las operaciones completadas exitosamente: {}".format(explanation))
         
         return StreamingResponse(
             output,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": "attachment; filename=assistant_output.pdf",
-                "X-Operations": json.dumps(executed)
+                "X-Operations": json.dumps(executed),
+                "X-Explanation": explanation
             }
         )
         
-    except ValueError as e:
-        print("[CatFileAPI] [Assistant] Error de validación: {}".format(str(e)))
-        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
