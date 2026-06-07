@@ -1,5 +1,6 @@
-
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from typing import Optional
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from auth import get_current_user, require_auth, check_usage, get_user_plan, save_pdf_to_db, load_pdf_from_db
 from fastapi.responses import StreamingResponse
 import pymupdf
 import io
