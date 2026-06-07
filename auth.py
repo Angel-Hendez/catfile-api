@@ -6,8 +6,8 @@ from fastapi import HTTPException, Header
 from typing import Optional
 from supabase import create_client, Client
  
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_URL = "https://snhkkptrpqshjjehtsgz.supabase.co"
+SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNuaGtrcHRycHFzaGpqZWh0c2d6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc3NjcyMiwiZXhwIjoyMDk2MzUyNzIyfQ.OqXi4xmEQidwtmcbyAWQeLq3acdkCHdNVi_9hf32LWU"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
  
