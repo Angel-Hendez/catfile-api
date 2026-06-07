@@ -1,4 +1,3 @@
-@"
 fastapi
 uvicorn
 pymupdf
@@ -6,4 +5,3 @@ python-multipart
 requests
 httpx
 supabase
-"@ | Set-Content requirements.txt
