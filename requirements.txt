@@ -2,6 +2,7 @@ fastapi
 uvicorn
 pymupdf
 python-multipart
+google-generativeai
 requests
 httpx
 supabase

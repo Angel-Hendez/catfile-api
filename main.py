@@ -6,6 +6,9 @@ import pymupdf
 import io
 import uuid
 import os
+import google.generativeai as genai
+
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
 app = FastAPI(title="CatFile API", description="API para edición profesional de PDFs 🐾")
 
@@ -889,7 +892,6 @@ async def chat_with_pdf(request: Request):
     """Chat con el PDF usando Gemini - recibe JSON desde Flutter"""
     try:
         import json
-        import httpx
         import os
  
         body = await request.json()
@@ -907,70 +909,29 @@ async def chat_with_pdf(request: Request):
  
         pdf_text = pdf_storage[pdf_id]["text"]
  
-        # ── Construir contents para Gemini ──────────────────────────────────
-        # Gemini 2.5 Flash no acepta system prompt como rol "user" al inicio.
-        # La forma correcta es incluir el contexto en el primer mensaje de usuario.
- 
-        system_context = (
-            "Eres Catfile 🐾, un asistente profesional para analizar y editar PDFs. "
-            "Responde siempre en el idioma del usuario.\n\n"
-            "Contenido del PDF:\n"
-            "---\n"
-            "{}\n"
-            "---\n\n"
-            "Pregunta del usuario: {}"
-        ).format(pdf_text[:50000], message)
- 
-        contents = []
- 
-        # Agregar historial previo (saltando el primer mensaje si es el system context)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        
+        # Construir historial para Gemini
+        chat_history = []
         for entry in history:
             role = entry.get("role", "user")
             content = entry.get("content", "")
- 
-            # Gemini usa "model" en lugar de "assistant"
             gemini_role = "model" if role == "assistant" else "user"
- 
-            # Evitar duplicar el system context en el historial
-            if contents or gemini_role == "user":
-                contents.append({
-                    "role": gemini_role,
-                    "parts": [{"text": content}]
-                })
- 
-        # Agregar el mensaje actual con el contexto del PDF embebido
-        contents.append({
-            "role": "user",
-            "parts": [{"text": system_context}]
-        })
- 
-        # ── Llamar a Gemini ─────────────────────────────────────────────────
-        gemini_key = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6L9_eI-ZyrrOzCnpPPKJjxZNF9Eggwj930LXz-KCMNSnw")
- 
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
-                json={
-                    "contents": contents,
-                    "generationConfig": {
-                        "maxOutputTokens": 1024,
-                        "temperature": 0.7,
-                    }
-                }
-            )
- 
-        if response.status_code != 200:
-            print("[CatFileAPI] Gemini error: {}".format(response.text))
-            raise HTTPException(status_code=502, detail="Error al contactar Gemini")
- 
-        result = response.json()
- 
-        # Extraer respuesta de forma segura
-        try:
-            reply = result["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as e:
-            print("[CatFileAPI] Error parseando respuesta Gemini: {}".format(result))
-            raise HTTPException(status_code=502, detail="Respuesta inesperada de Gemini")
+            chat_history.append({
+                "role": gemini_role,
+                "parts": [content]
+            })
+  
+        system_context = (
+            "Eres Catfile 🐾, un asistente profesional para analizar PDFs. "
+            "Responde en el idioma del usuario.\n\n"
+            "Contenido del PDF:\n---\n{}\n---\n\n"
+            "Pregunta: {}"
+        ).format(pdf_text[:50000], message)
+  
+        chat = model.start_chat(history=chat_history)
+        response = chat.send_message(system_context)
+        reply = response.text
  
         print("[CatFileAPI] Chat response generado correctamente")
         return {"reply": reply, "pdf_id": pdf_id}
@@ -996,22 +957,21 @@ async def pdf_assistant(
     - "Reordena las páginas como 2,0,1"
     """
     try:
-        import httpx  
         import json
         print("[CatFileAPI] [Assistant] Nueva solicitud: {}".format(instruction))
-        
+ 
         content = await file.read()
         doc = pymupdf.open(stream=content, filetype="pdf")
-        
+ 
         # 1. Extraer texto del PDF para contexto
         print("[CatFileAPI] [Assistant] Extrayendo texto del PDF")
         pdf_text = ""
         for page in doc:
             pdf_text += page.get_text()
         total_pages = len(doc)
-        
+ 
         doc.close()
-        
+ 
         # 2. Construir prompt para Gemini
         print("[CatFileAPI] [Assistant] Enviando solicitud a Gemini")
         system_prompt = """Eres un asistente que interpreta instrucciones para editar PDFs.
@@ -1033,43 +993,16 @@ Responde SOLO con un JSON válido con esta estructura:
 Operaciones disponibles: delete_page, add_page, edit_text, reorder_pages
 Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
 """.format(total_pages=total_pages, instruction=instruction)
-        
-        # 3. Llamar a Gemini
-        gemini_key = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6L9_eI-ZyrrOzCnpPPKJjxZNF9Eggwj930LXz-KCMNSnw")
-        
-        contents = [{
-            "role": "user",
-            "parts": [{"text": system_prompt}]
-        }]
-        
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
-                json={
-                    "contents": contents,
-                    "generationConfig": {
-                        "maxOutputTokens": 1024,
-                        "temperature": 0.3,
-                        "responseMimeType": "application/json"
-                    }
-                }
-            )
-        
-        if response.status_code != 200:
-            print("[CatFileAPI] Gemini error: {}".format(response.text))
-            raise HTTPException(status_code=502, detail="Error al contactar Gemini")
-        
-        result = response.json()
-        try:
-            reply = result["candidates"][0]["content"]["parts"][0]["text"]
-            print("[CatFileAPI] [Assistant] Respuesta Gemini: {}".format(reply))
-            parsed = json.loads(reply)
-            operations = parsed.get("operations", [])
-            explanation = parsed.get("explanation", "")
-        except (KeyError, IndexError, json.JSONDecodeError) as e:
-            print("[CatFileAPI] Error parseando respuesta Gemini: {}".format(str(e)))
-            raise HTTPException(status_code=502, detail="Respuesta inesperada de Gemini")
-        
+ 
+        model = genai.GenerativeModel(
+            "gemini-2.5-flash",
+            generation_config={"response_mime_type": "application/json"}
+        )
+        response = model.generate_content(system_prompt)
+        reply = response.text
+        parsed = json.loads(reply)
+        operations = parsed.get("operations", [])
+        explanation = parsed.get("explanation", "")
         print("[CatFileAPI] [Assistant] Operaciones detectadas: {}".format(len(operations)))
         for i, op in enumerate(operations, 1):
             print("[CatFileAPI]   {}. {}".format(i, op))
