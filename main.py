@@ -735,6 +735,15 @@ class PDFAssistantExecutor:
             page.insert_textbox(rect, new_text, fontsize=12, color=(0, 0, 0), align=0)
     
     @staticmethod
+    async def execute_add_text(doc, text: str, page_num: int, x: float = 50, y: float = 50,
+                                fontsize: float = 12) -> None:
+        page = doc[page_num]
+        point = pymupdf.Point(x, y)
+        page.insert_text(point, text, fontsize=fontsize, color=(0, 0, 0))
+        print("[CatFileAPI] [Executor] Texto '{}' insertado en página {}".format(
+            text, page_num + 1))
+    
+    @staticmethod
     async def execute_delete_image(doc, page_num: int, image_index: int) -> None:
         """Ejecuta eliminación de imagen"""
         page = doc[page_num]
@@ -819,6 +828,19 @@ class PDFAssistantService:
         """Servicio: Editar texto"""
         doc = pymupdf.open(stream=pdf_content, filetype="pdf")
         await PDFAssistantService.executor.execute_edit_text(doc, old_text, new_text, page_num)
+        output = io.BytesIO()
+        doc.save(output, garbage=4, deflate=True)
+        doc.close()
+        output.seek(0)
+        return output.getvalue()
+    
+    @staticmethod
+    async def add_text_service(pdf_content: bytes, text: str, 
+                               page_num: int, x: float = 50, 
+                               y: float = 50, fontsize: float = 12) -> bytes:
+        doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+        await PDFAssistantService.executor.execute_add_text(
+            doc, text, page_num, x, y, fontsize)
         output = io.BytesIO()
         doc.save(output, garbage=4, deflate=True)
         doc.close()
@@ -984,13 +1006,14 @@ Responde SOLO con un JSON válido con esta estructura:
     "operations": [
         {{"operation": "delete_page", "params": {{"pages": [0]}}}},
         {{"operation": "add_page", "params": {{"position": -1}}}},
+        {{"operation": "add_text", "params": {{"text": "...", "page_num": 0, "x": 50, "y": 50, "fontsize": 12}}}},
         {{"operation": "edit_text", "params": {{"old_text": "...", "new_text": "...", "page_num": 0}}}},
         {{"operation": "reorder_pages", "params": {{"order": [0,1,2]}}}}
     ],
     "explanation": "Explicación breve de lo que se hará"
 }}
 
-Operaciones disponibles: delete_page, add_page, edit_text, reorder_pages
+Operaciones disponibles: delete_page, add_page, add_text, edit_text, reorder_pages
 Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
 """.format(total_pages=total_pages, instruction=instruction)
  
@@ -1027,6 +1050,17 @@ Si no puedes realizar la operación, devuelve {{"operations": [], "explanation":
                 elif op_type == "reorder_pages":
                     print("[CatFileAPI] [Assistant] Ejecutando: {}".format(op_type))
                     pdf_state = await PDFAssistantService.reorder_pages_service(pdf_state, params["order"])
+                    
+                elif op_type == "add_text":
+                    print("[CatFileAPI] [Assistant] Ejecutando: {}".format(op_type))
+                    pdf_state = await PDFAssistantService.add_text_service(
+                        pdf_state,
+                        params["text"],
+                        params["page_num"],
+                        params.get("x", 50),
+                        params.get("y", 50),
+                        params.get("fontsize", 12)
+                    )
                     
                 elif op_type == "edit_text":
                     print("[CatFileAPI] [Assistant] Ejecutando: {}".format(op_type))
