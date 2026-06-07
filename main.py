@@ -884,54 +884,98 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 
 @app.post("/pdf/chat")
-async def chat_with_pdf(
-    pdf_id: str = Form(...),
-    message: str = Form(...),
-    history: str = Form("[]")
-):
-    """Chat con el PDF usando Gemini"""
+async def chat_with_pdf(request: Request):
+    """Chat con el PDF usando Gemini - recibe JSON desde Flutter"""
     try:
         import json
         import httpx
-        
-        print("[CatFileAPI] Chat request - PDF: {}, Message: {}".format(pdf_id, message))
-        
-        if pdf_id not in pdf_storage:
-            raise HTTPException(status_code=404, detail="PDF no encontrado")
-        
-        pdf_text = pdf_storage[pdf_id]["text"]
-        chat_history = json.loads(history)
-        
-        # Construir prompt para Gemini
-        system_prompt = """Eres Catfile 🐾, un asistente profesional que ayuda a los usuarios a entender y editar sus documentos PDF.
-        
-El documento que debes analizar es el siguiente:
-
-{}""".format(pdf_text[:50000])  # Limitar texto
-        
-        messages = [{"role": "user", "content": system_prompt}]
-        for h in chat_history:
-            messages.append(h)
-        messages.append({"role": "user", "content": message})
-        
-        # Llamar a Gemini
         import os
+ 
+        body = await request.json()
+        pdf_id  = body.get("pdf_id")
+        message = body.get("message")
+        history = body.get("history", [])  # Lista de {role, content} ya parseada
+ 
+        print("[CatFileAPI] Chat request - PDF: {}, Message: {}".format(pdf_id, message))
+ 
+        if not pdf_id or not message:
+            raise HTTPException(status_code=400, detail="pdf_id y message son requeridos")
+ 
+        if pdf_id not in pdf_storage:
+            raise HTTPException(status_code=404, detail="PDF no encontrado. Vuelve a subir el archivo.")
+ 
+        pdf_text = pdf_storage[pdf_id]["text"]
+ 
+        # ── Construir contents para Gemini ──────────────────────────────────
+        # Gemini 2.5 Flash no acepta system prompt como rol "user" al inicio.
+        # La forma correcta es incluir el contexto en el primer mensaje de usuario.
+ 
+        system_context = (
+            "Eres Catfile 🐾, un asistente profesional para analizar y editar PDFs. "
+            "Responde siempre en el idioma del usuario.\n\n"
+            "Contenido del PDF:\n"
+            "---\n"
+            "{}\n"
+            "---\n\n"
+            "Pregunta del usuario: {}"
+        ).format(pdf_text[:50000], message)
+ 
+        contents = []
+ 
+        # Agregar historial previo (saltando el primer mensaje si es el system context)
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+ 
+            # Gemini usa "model" en lugar de "assistant"
+            gemini_role = "model" if role == "assistant" else "user"
+ 
+            # Evitar duplicar el system context en el historial
+            if contents or gemini_role == "user":
+                contents.append({
+                    "role": gemini_role,
+                    "parts": [{"text": content}]
+                })
+ 
+        # Agregar el mensaje actual con el contexto del PDF embebido
+        contents.append({
+            "role": "user",
+            "parts": [{"text": system_context}]
+        })
+ 
+        # ── Llamar a Gemini ─────────────────────────────────────────────────
         gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        if not gemini_key:
+            raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
+ 
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={}".format(gemini_key),
                 json={
-                    "contents": [{"parts": [{"text": msg["content"]}], "role": msg["role"] if msg["role"] == "user" else "model"} for msg in messages],
-                    "generationConfig": {"maxOutputTokens": 1000}
+                    "contents": contents,
+                    "generationConfig": {
+                        "maxOutputTokens": 1024,
+                        "temperature": 0.7,
+                    }
                 }
             )
-        
+ 
+        if response.status_code != 200:
+            print("[CatFileAPI] Gemini error: {}".format(response.text))
+            raise HTTPException(status_code=502, detail="Error al contactar Gemini")
+ 
         result = response.json()
-        reply = result["candidates"][0]["content"]["parts"][0]["text"]
-        
-        print("[CatFileAPI] Chat response generated")
+ 
+        # Extraer respuesta de forma segura
+        try:
+            reply = result["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as e:
+            print("[CatFileAPI] Error parseando respuesta Gemini: {}".format(result))
+            raise HTTPException(status_code=502, detail="Respuesta inesperada de Gemini")
+ 
+        print("[CatFileAPI] Chat response generado correctamente")
         return {"reply": reply, "pdf_id": pdf_id}
-        
+ 
     except HTTPException:
         raise
     except Exception as e:

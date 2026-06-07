@@ -3,3 +3,4 @@ uvicorn
 pymupdf
 python-multipart
 requests
+httpx
