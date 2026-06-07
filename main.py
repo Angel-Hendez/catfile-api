@@ -996,6 +996,8 @@ async def pdf_assistant(
     - "Reordena las páginas como 2,0,1"
     """
     try:
+        import httpx  
+        import json
         print("[CatFileAPI] [Assistant] Nueva solicitud: {}".format(instruction))
         
         content = await file.read()
