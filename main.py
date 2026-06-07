@@ -945,7 +945,7 @@ async def chat_with_pdf(request: Request):
         })
  
         # ── Llamar a Gemini ─────────────────────────────────────────────────
-        gemini_key = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LQ4rJ5PyQIt8ouNxvnhEepwihs_06dbKECdHIe2GdxdQ")
+        gemini_key = os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6L9_eI-ZyrrOzCnpPPKJjxZNF9Eggwj930LXz-KCMNSnw")
  
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
