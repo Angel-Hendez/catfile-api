@@ -6,10 +6,16 @@ from fastapi import HTTPException, Header
 from typing import Optional
 from supabase import create_client, Client
  
-SUPABASE_URL = "https://snhkkptrpqshjjehtsgz.supabase.co"
-SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNuaGtrcHRycHFzaGpqZWh0c2d6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc3NjcyMiwiZXhwIjoyMDk2MzUyNzIyfQ.OqXi4xmEQidwtmcbyAWQeLq3acdkCHdNVi_9hf32LWU"
+# ✅ Se inicializa lazy, cuando se llama por primera vez
+_supabase_client: Client = None
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+def get_supabase() -> Client:
+    global _supabase_client
+    if _supabase_client is None:
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        _supabase_client = create_client(url, key)
+    return _supabase_client
  
  
 def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[dict]:
@@ -27,7 +33,7 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[di
     token = authorization.replace("Bearer ", "")
  
     try:
-        user = supabase.auth.get_user(token)
+        user = get_supabase().auth.get_user(token)
         if not user or not user.user:
             raise HTTPException(status_code=401, detail="Token inválido o expirado")
         return {"id": user.user.id, "email": user.user.email}
@@ -56,7 +62,7 @@ def check_usage(user_id: str, action: str) -> bool:
     Retorna True si puede continuar, False si alcanzó el límite.
     """
     try:
-        result = supabase.rpc(
+        result = get_supabase().rpc(
             "check_and_increment_usage",
             {"p_user_id": user_id, "p_action": action}
         ).execute()
@@ -69,7 +75,7 @@ def check_usage(user_id: str, action: str) -> bool:
 def get_user_plan(user_id: str) -> str:
     """Obtiene el plan del usuario (free | premium)"""
     try:
-        result = supabase.table("profiles").select("plan").eq("id", user_id).single().execute()
+        result = get_supabase().table("profiles").select("plan").eq("id", user_id).single().execute()
         return result.data.get("plan", "free")
     except:
         return "free"
@@ -84,7 +90,7 @@ def save_pdf_to_db(user_id: Optional[str], pdf_id: str, filename: str, text: str
         return  # Guests usan solo el dict en memoria
  
     try:
-        supabase.table("pdf_files").upsert({
+        get_supabase().table("pdf_files").upsert({
             "user_id": user_id,
             "pdf_id": pdf_id,
             "filename": filename,
@@ -102,7 +108,7 @@ def load_pdf_from_db(user_id: str, pdf_id: str) -> Optional[str]:
     Útil cuando el servidor se reinició y perdió el pdf_storage en memoria.
     """
     try:
-        result = supabase.table("pdf_files") \
+        result = get_supabase().table("pdf_files") \
             .select("text, filename") \
             .eq("pdf_id", pdf_id) \
             .eq("user_id", user_id) \
