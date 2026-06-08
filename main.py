@@ -727,17 +727,27 @@ class PDFAssistantExecutor:
         
         # Si no encuentra, intentar búsqueda case-insensitive manual
         if not rects:
-            # Extraer todo el texto con posiciones
             blocks = page.get_text("dict")["blocks"]
             for block in blocks:
                 if block.get("type") != 0:
                     continue
                 for line in block["lines"]:
                     for span in line["spans"]:
-                        span_text = span["text"]
-                        # Comparar ignorando acentos y mayúsculas
-                        if old_text.lower().strip() in span_text.lower().strip() or \
-                           span_text.lower().strip() in old_text.lower().strip():
+                        span_text = span["text"].strip()
+                        search_text = old_text.strip()
+                        
+                        # Solo comparar si ambos tienen contenido
+                        if not span_text or not search_text:
+                            continue
+                        
+                        # Normalizar: quitar acentos para comparar
+                        import unicodedata
+                        def normalize(s):
+                            return unicodedata.normalize('NFD', s.lower()) \
+                                   .encode('ascii', 'ignore').decode('ascii')
+                        
+                        if normalize(search_text) in normalize(span_text) or \
+                           normalize(span_text) in normalize(search_text):
                             bbox = span["bbox"]
                             rect = pymupdf.Rect(bbox)
                             rects.append(rect)
