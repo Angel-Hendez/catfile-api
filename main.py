@@ -731,6 +731,32 @@ class PDFAssistantExecutor:
         # Intento 1: búsqueda exacta
         rects = page.search_for(old_text)
         
+        # Intento 1.5: buscar variantes con acentos comunes en español
+        if not rects:
+            import unicodedata
+            # Generar variantes del texto buscado
+            variants = [old_text]
+            
+            # Mapa de caracteres sin acento a con acento
+            accent_map = {
+                'a': ['á'], 'e': ['é'], 'i': ['í'], 
+                'o': ['ó'], 'u': ['ú', 'ü'], 'n': ['ñ']
+            }
+            
+            # Extraer texto real del PDF y buscar coincidencia normalizada
+            norm_search = normalize(old_text.strip())
+            words_in_page = page.get_text("words")  # (x0, y0, x1, y1, word, ...)
+            
+            for word_data in words_in_page:
+                word = word_data[4]
+                if normalize(word.strip().lower()) == norm_search:
+                    # Encontró la palabra real con su acento correcto
+                    rect = pymupdf.Rect(word_data[0], word_data[1], 
+                                        word_data[2], word_data[3])
+                    rects.append(rect)
+                    print("[CatFileAPI] [Executor] Variante encontrada: '{}' en {}".format(
+                        word, rect))
+        
         # Intento 2: búsqueda case-insensitive con PyMuPDF flags
         if not rects:
             rects = page.search_for(old_text, flags=pymupdf.TEXT_DEHYPHENATE)
