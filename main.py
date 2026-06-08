@@ -1155,17 +1155,42 @@ async def chat_with_pdf(request: Request):
         pdf_text = pdf_storage[pdf_id]["text"]
  
         # TODO: reemplazar búsqueda simple por Gemini cuando haya cuota disponible
-        pdf_lower = pdf_text.lower()
+        
+        # Detección de intent: resumen del documento
         message_lower = message.lower().strip()
-        idx = pdf_lower.find(message_lower)
-
-        if idx >= 0:
-            start = max(0, idx - 250)
-            end = min(len(pdf_text), idx + len(message) + 250)
-            snippet = pdf_text[start:end].strip()
-            reply = snippet
+        summary_keywords = ["resumen", "resume", "summarize", "de qué trata", "de que trata", 
+                           "de qué habla", "sobre qué"]
+        
+        # Intent 1: Solicitud de resumen (mensaje corto con palabras clave)
+        if len(message) < 100 and any(keyword in message_lower for keyword in summary_keywords):
+            sentences = pdf_text.split(". ")
+            if len(sentences) <= 5:
+                summary = pdf_text
+            else:
+                first_five = sentences[:5]
+                summary = ". ".join(first_five) + "."
+            reply = "📄 Resumen del documento:\n\n" + summary
+        
+        # Intent 2: Mensaje muy largo (probablemente es texto a resumir directamente)
+        elif len(message) > 500:
+            sentences = message.split(". ")
+            if len(sentences) <= 5:
+                summary = message
+            else:
+                first_five = sentences[:5]
+                summary = ". ".join(first_five) + "."
+            reply = "📄 Resumen del documento:\n\n" + summary
+        
+        # Intent 3: Búsqueda de substring en el PDF (comportamiento por defecto)
         else:
-            reply = "No encontré información relacionada con tu pregunta en el documento 🐾"
+            idx = pdf_text.lower().find(message_lower)
+            if idx >= 0:
+                start = max(0, idx - 250)
+                end = min(len(pdf_text), idx + len(message) + 250)
+                snippet = pdf_text[start:end].strip()
+                reply = snippet
+            else:
+                reply = "No encontré información relacionada con tu pregunta en el documento 🐾"
  
         print("[CatFileAPI] Chat response generado correctamente")
         return {"reply": reply, "pdf_id": pdf_id}
