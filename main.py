@@ -1152,23 +1152,17 @@ async def chat_with_pdf(request: Request):
         pdf_text = pdf_storage[pdf_id]["text"]
  
         # TODO: reemplazar búsqueda simple por Gemini cuando haya cuota disponible
-        message_lower = message.lower().strip()
         pdf_lower = pdf_text.lower()
+        message_lower = message.lower().strip()
         idx = pdf_lower.find(message_lower)
 
         if idx >= 0:
             start = max(0, idx - 250)
             end = min(len(pdf_text), idx + len(message) + 250)
             snippet = pdf_text[start:end].strip()
-            reply = (
-                "Encontré información relevante en el documento. "
-                "Aquí tienes un fragmento cercano a tu consulta:\n\n" + snippet
-            )
+            reply = snippet
         else:
-            reply = (
-                "No encontré información relacionada con tu consulta en el documento. "
-                "Verifica el texto o intenta con otra pregunta."
-            )
+            reply = "No encontré información relacionada con tu pregunta en el documento 🐾"
  
         print("[CatFileAPI] Chat response generado correctamente")
         return {"reply": reply, "pdf_id": pdf_id}
@@ -1207,40 +1201,10 @@ async def pdf_assistant(
             pdf_text += page.get_text()
         total_pages = len(doc)
  
+        parser = PDFAssistantParser(language="es")
+        # TODO: reemplazar PDFAssistantParser por Gemini cuando haya cuota disponible
+        operations = parser.parse(instruction, doc)
         doc.close()
- 
-        # 2. Construir prompt para Gemini
-        print("[CatFileAPI] [Assistant] Enviando solicitud a Gemini")
-        system_prompt = """Eres un asistente que interpreta instrucciones para editar PDFs.
-El documento tiene {total_pages} páginas.
-
-Instrucción del usuario: "{instruction}"
-
-Responde SOLO con un JSON válido con esta estructura:
-{{
-    "operations": [
-        {{"operation": "delete_page", "params": {{"pages": [0]}}}},
-        {{"operation": "add_page", "params": {{"position": -1}}}},
-        {{"operation": "add_text", "params": {{"text": "...", "page_num": 0, "x": 50, "y": 50, "fontsize": 12}}}},
-        {{"operation": "edit_text", "params": {{"old_text": "...", "new_text": "...", "page_num": 0}}}},
-        {{"operation": "reorder_pages", "params": {{"order": [0,1,2]}}}}
-    ],
-    "explanation": "Explicación breve de lo que se hará"
-}}
-
-Operaciones disponibles: delete_page, add_page, add_text, edit_text, reorder_pages
-Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
-""".format(total_pages=total_pages, instruction=instruction)
- 
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            generation_config={"response_mime_type": "application/json"}
-        )
-        response = model.generate_content(system_prompt)
-        reply = response.text
-        parsed = json.loads(reply)
-        operations = parsed.get("operations", [])
-        explanation = parsed.get("explanation", "")
         print("[CatFileAPI] [Assistant] Operaciones detectadas: {}".format(len(operations)))
         for i, op in enumerate(operations, 1):
             print("[CatFileAPI]   {}. {}".format(i, op))
