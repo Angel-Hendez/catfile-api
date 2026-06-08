@@ -1151,29 +1151,24 @@ async def chat_with_pdf(request: Request):
  
         pdf_text = pdf_storage[pdf_id]["text"]
  
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        
-        # Construir historial para Gemini
-        chat_history = []
-        for entry in history:
-            role = entry.get("role", "user")
-            content = entry.get("content", "")
-            gemini_role = "model" if role == "assistant" else "user"
-            chat_history.append({
-                "role": gemini_role,
-                "parts": [content]
-            })
-  
-        system_context = (
-            "Eres Catfile 🐾, un asistente profesional para analizar PDFs. "
-            "Responde en el idioma del usuario.\n\n"
-            "Contenido del PDF:\n---\n{}\n---\n\n"
-            "Pregunta: {}"
-        ).format(pdf_text[:50000], message)
-  
-        chat = model.start_chat(history=chat_history)
-        response = chat.send_message(system_context)
-        reply = response.text
+        # TODO: reemplazar búsqueda simple por Gemini cuando haya cuota disponible
+        message_lower = message.lower().strip()
+        pdf_lower = pdf_text.lower()
+        idx = pdf_lower.find(message_lower)
+
+        if idx >= 0:
+            start = max(0, idx - 250)
+            end = min(len(pdf_text), idx + len(message) + 250)
+            snippet = pdf_text[start:end].strip()
+            reply = (
+                "Encontré información relevante en el documento. "
+                "Aquí tienes un fragmento cercano a tu consulta:\n\n" + snippet
+            )
+        else:
+            reply = (
+                "No encontré información relacionada con tu consulta en el documento. "
+                "Verifica el texto o intenta con otra pregunta."
+            )
  
         print("[CatFileAPI] Chat response generado correctamente")
         return {"reply": reply, "pdf_id": pdf_id}
