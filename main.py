@@ -721,36 +721,53 @@ class PDFAssistantExecutor:
     @staticmethod
     async def execute_edit_text(doc, old_text: str, new_text: str, page_num: int) -> None:
         page = doc[page_num]
-        rects = page.search_for(old_text)
+        
+        # Buscar con flags para ignorar mayúsculas/minúsculas
+        rects = page.search_for(old_text, quads=False)
+        
+        # Si no encuentra, intentar búsqueda case-insensitive manual
+        if not rects:
+            # Extraer todo el texto con posiciones
+            blocks = page.get_text("dict")["blocks"]
+            for block in blocks:
+                if block.get("type") != 0:
+                    continue
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        span_text = span["text"]
+                        # Comparar ignorando acentos y mayúsculas
+                        if old_text.lower().strip() in span_text.lower().strip() or \
+                           span_text.lower().strip() in old_text.lower().strip():
+                            bbox = span["bbox"]
+                            rect = pymupdf.Rect(bbox)
+                            rects.append(rect)
+                            print("[CatFileAPI] [Executor] Encontrado via fallback: '{}' en {}".format(
+                                span_text, rect))
         
         if not rects:
             raise ValueError("Texto '{}' no encontrado en página {}".format(
                 old_text, page_num + 1))
         
         for rect in rects:
-            print("[CatFileAPI] [Executor] Reemplazando '{}' por '{}' en página {}".format(
-                old_text, new_text, page_num + 1))
+            print("[CatFileAPI] [Executor] Reemplazando '{}' por '{}' en {}".format(
+                old_text, new_text, rect))
             
-            print("[DEBUG] Rect del texto: x0={} y0={} x1={} y1={} width={} height={}".format(
-                rect.x0, rect.y0, rect.x1, rect.y1, 
-                rect.x1-rect.x0, rect.y1-rect.y0))
+            # Obtener tamaño de fuente del span original
+            fontsize = 12
+            blocks = page.get_text("dict")["blocks"]
+            for block in blocks:
+                if block.get("type") != 0:
+                    continue
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        if pymupdf.Rect(span["bbox"]).intersects(rect):
+                            fontsize = span["size"]
+                            break
             
-            # Listar imágenes en la página y sus posiciones
-            images = page.get_images(full=True)
-            for img in images:
-                xref = img[0]
-                img_rects = page.get_image_rects(xref)
-                for ir in img_rects:
-                    print("[DEBUG] Imagen xref={} en rect: x0={} y0={} x1={} y1={}".format(
-                        xref, ir.x0, ir.y0, ir.x1, ir.y1))
-                    # Verificar si se solapan
-                    overlap = rect.intersects(ir)
-                    print("[DEBUG] ¿Se solapan texto e imagen? {}".format(overlap))
-            
-            # Detectar color de fondo del área
+            # Detectar color de fondo
             try:
                 clip = page.get_pixmap(clip=rect, alpha=False)
-                pixel = clip.pixel(0, 0)
+                pixel = clip.pixel(1, 1)
                 if isinstance(pixel, int):
                     gray = pixel / 255.0
                     bg_color = (gray, gray, gray)
@@ -759,19 +776,17 @@ class PDFAssistantExecutor:
             except:
                 bg_color = (1, 1, 1)
             
-            # Cubrir SOLO el texto con rectángulo del color de fondo
-            # Sin usar redactions que borran imágenes
+            # Cubrir el texto original
             page.draw_rect(rect, color=bg_color, fill=bg_color)
             
-            # Insertar el nuevo texto en la misma posición
-            page.insert_textbox(
-                rect,
+            # Insertar nuevo texto con el mismo tamaño de fuente
+            page.insert_text(
+                pymupdf.Point(rect.x0, rect.y1 - 1),
                 new_text,
-                fontsize=rect.height * 0.85,  # Ajustar al tamaño del rect
-                color=(0, 0, 0),
-                align=0
+                fontsize=fontsize,
+                color=(0, 0, 0)
             )
-    
+
     @staticmethod
     async def execute_add_text(doc, text: str, page_num: int, x: float = 50, y: float = 50,
                                 fontsize: float = 12) -> None:
