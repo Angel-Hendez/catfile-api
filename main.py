@@ -1265,7 +1265,7 @@ async def pdf_assistant(
         # 5. Retornar PDF modificado
         output = io.BytesIO(pdf_state)
         
-        print("[CatFileAPI] [Assistant] Todas las operaciones completadas exitosamente: {}".format(explanation))
+        print("[CatFileAPI] [Assistant] Todas las operaciones completadas exitosamente")
         
         return StreamingResponse(
             output,
@@ -1273,7 +1273,7 @@ async def pdf_assistant(
             headers={
                 "Content-Disposition": "attachment; filename=assistant_output.pdf",
                 "X-Operations": json.dumps(executed),
-                "X-Explanation": explanation
+                "X-Explanation": ""
             }
         )
         
