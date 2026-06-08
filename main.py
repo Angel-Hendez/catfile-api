@@ -471,15 +471,15 @@ async def add_text_to_pdf(
     page_num: int = Form(0),
     x: float = Form(50),
     y: float = Form(50),
-    fontsize: float = Form(12)
+    fontsize: float = Form(12),
+    color: str = Form("#000000")  # ✅ agregar este parámetro
 ):
-    """Inserta texto en una posición específica del PDF"""
     try:
-        print("[CatFileAPI] ADD-TEXT: página={}, x={}, y={}".format(page_num, x, y))
+        print("[CatFileAPI] ADD-TEXT: página={}, x={}, y={}, color={}".format(page_num, x, y, color))
         content = await file.read()
         
         pdf_bytes = await PDFAssistantService.add_text_service(
-            content, text, page_num, x, y, fontsize)
+            content, text, page_num, x, y, fontsize, color)  # ✅ pasar color
         
         output = io.BytesIO(pdf_bytes)
         return StreamingResponse(
@@ -946,14 +946,21 @@ class PDFAssistantExecutor:
             print("[CatFileAPI] [Executor] '{}' → '{}' en {}".format(
                 old_text, new_text, rect))
 
-    @staticmethod
-    async def execute_add_text(doc, text: str, page_num: int, x: float = 50, y: float = 50,
-                                fontsize: float = 12) -> None:
-        page = doc[page_num]
-        point = pymupdf.Point(x, y)
-        page.insert_text(point, text, fontsize=fontsize, color=(0, 0, 0))
-        print("[CatFileAPI] [Executor] Texto '{}' insertado en página {}".format(
-            text, page_num + 1))
+   @staticmethod
+   async def execute_add_text(doc, text: str, page_num: int, x: float = 50,
+                            y: float = 50, fontsize: float = 12,
+                            color: str = "#000000") -> None:  # ✅
+    # Convertir hex "#RRGGBB" a tuple (r, g, b) que usa PyMuPDF (valores 0.0-1.0)
+    color = color.lstrip("#")
+    r = int(color[0:2], 16) / 255.0
+    g = int(color[2:4], 16) / 255.0
+    b = int(color[4:6], 16) / 255.0
+    
+    page = doc[page_num]
+    point = pymupdf.Point(x, y)
+    page.insert_text(point, text, fontsize=fontsize, color=(r, g, b))  # ✅
+    print("[CatFileAPI] [Executor] Texto '{}' insertado en página {} con color rgb({},{},{})".format(
+        text, page_num + 1, r, g, b))
     
     @staticmethod
     async def execute_delete_image(doc, page_num: int, image_index: int) -> None:
@@ -1047,17 +1054,18 @@ class PDFAssistantService:
         return output.getvalue()
     
     @staticmethod
-    async def add_text_service(pdf_content: bytes, text: str, 
-                               page_num: int, x: float = 50, 
-                               y: float = 50, fontsize: float = 12) -> bytes:
-        doc = pymupdf.open(stream=pdf_content, filetype="pdf")
-        await PDFAssistantService.executor.execute_add_text(
-            doc, text, page_num, x, y, fontsize)
-        output = io.BytesIO()
-        doc.save(output, garbage=4, deflate=True)
-        doc.close()
-        output.seek(0)
-        return output.getvalue()
+    async def add_text_service(pdf_content: bytes, text: str,
+                           page_num: int, x: float = 50,
+                           y: float = 50, fontsize: float = 12,
+                           color: str = "#000000") -> bytes:  # ✅
+    doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+    await PDFAssistantService.executor.execute_add_text(
+        doc, text, page_num, x, y, fontsize, color)  # ✅
+    output = io.BytesIO()
+    doc.save(output, garbage=4, deflate=True)
+    doc.close()
+    output.seek(0)
+    return output.getvalue()
     
     @staticmethod
     async def delete_image_service(pdf_content: bytes, page_num: int, 
