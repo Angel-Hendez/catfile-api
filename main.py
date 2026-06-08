@@ -7,13 +7,9 @@ import io
 import uuid
 import os
 import base64
-import vertexai
-from vertexai.generative_models import GenerativeModel
+import google.generativeai as genai
 
-vertexai.init(
-    project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-    location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
-)
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
 
 app = FastAPI(title="CatFile API", description="API para edición profesional de PDFs 🐾")
 
@@ -509,7 +505,7 @@ async def ocr_extract(request: Request):
         
         print("[CatFileAPI] OCR: Extrayendo texto de imagen")
         
-        model = GenerativeModel("gemini-2.0-flash-001")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         image_data = base64.b64decode(image_base64)
         
@@ -546,7 +542,7 @@ async def summarize_text(request: Request):
         
         print("[CatFileAPI] Summarize: Resumiendo texto")
         
-        model = GenerativeModel("gemini-2.0-flash-001")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         response = model.generate_content(
             "Resume el siguiente texto en un párrafo breve, manteniendo "
@@ -1155,7 +1151,7 @@ async def chat_with_pdf(request: Request):
  
         pdf_text = pdf_storage[pdf_id]["text"]
  
-        model = GenerativeModel("gemini-2.0-flash-001")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         # Construir historial para Gemini
         chat_history = []
@@ -1241,8 +1237,8 @@ Operaciones disponibles: delete_page, add_page, add_text, edit_text, reorder_pag
 Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
 """.format(total_pages=total_pages, instruction=instruction)
  
-        model = GenerativeModel(
-            "gemini-2.0-flash-001",
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash",
             generation_config={"response_mime_type": "application/json"}
         )
         response = model.generate_content(system_prompt)
