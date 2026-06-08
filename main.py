@@ -6,6 +6,7 @@ import pymupdf
 import io
 import uuid
 import os
+import base64
 import google.generativeai as genai
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
@@ -460,6 +461,73 @@ async def get_images(
         raise
     except Exception as e:
         print("[CatFileAPI] Error en get-images: {}".format(str(e)))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ocr/extract")
+async def ocr_extract(request: Request):
+    """Extrae texto de una imagen usando Gemini"""
+    try:
+        body = await request.json()
+        image_base64 = body.get("image_base64")
+        mime_type = body.get("mime_type", "image/jpeg")
+        
+        if not image_base64:
+            raise HTTPException(status_code=400, detail="image_base64 es requerido")
+        
+        print("[CatFileAPI] OCR: Extrayendo texto de imagen")
+        
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        image_data = base64.b64decode(image_base64)
+        
+        import PIL.Image
+        import io as _io
+        img = PIL.Image.open(_io.BytesIO(image_data))
+        
+        response = model.generate_content([
+            "Por favor, extrae TODA la información de texto visible en esta imagen. "
+            "Incluye todos los textos, números, palabras clave, títulos y contenido. "
+            "Devuelve solo el texto extraído sin explicaciones adicionales.",
+            img
+        ])
+        
+        print("[CatFileAPI] OCR: Texto extraído correctamente")
+        return {"text": response.text}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[CatFileAPI] OCR Error: {}".format(str(e)))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/summarize")
+async def summarize_text(request: Request):
+    """Resume un texto usando Gemini"""
+    try:
+        body = await request.json()
+        text = body.get("text")
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="text es requerido")
+        
+        print("[CatFileAPI] Summarize: Resumiendo texto")
+        
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        response = model.generate_content(
+            "Resume el siguiente texto en un párrafo breve, manteniendo "
+            "las ideas principales. Devuelve solo el resumen:\n\n" + text[:50000]
+        )
+        
+        print("[CatFileAPI] Summarize: Resumen generado")
+        return {"summary": response.text}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[CatFileAPI] Summarize Error: {}".format(str(e)))
         raise HTTPException(status_code=500, detail=str(e))
 
 
