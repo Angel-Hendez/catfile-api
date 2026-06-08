@@ -720,13 +720,24 @@ class PDFAssistantExecutor:
     
     @staticmethod
     async def execute_edit_text(doc, old_text: str, new_text: str, page_num: int) -> None:
+        import unicodedata
+        
+        def normalize(s):
+            return unicodedata.normalize('NFD', s.lower()) \
+                   .encode('ascii', 'ignore').decode('ascii')
+        
         page = doc[page_num]
         
-        # Buscar con flags para ignorar mayúsculas/minúsculas
-        rects = page.search_for(old_text, quads=False)
+        # Intento 1: búsqueda exacta
+        rects = page.search_for(old_text)
         
-        # Si no encuentra, intentar búsqueda case-insensitive manual
+        # Intento 2: búsqueda case-insensitive con PyMuPDF flags
         if not rects:
+            rects = page.search_for(old_text, flags=pymupdf.TEXT_DEHYPHENATE)
+        
+        # Intento 3: fallback normalizando acentos - busca la palabra exacta
+        if not rects:
+            norm_search = normalize(old_text.strip())
             blocks = page.get_text("dict")["blocks"]
             for block in blocks:
                 if block.get("type") != 0:
@@ -734,36 +745,52 @@ class PDFAssistantExecutor:
                 for line in block["lines"]:
                     for span in line["spans"]:
                         span_text = span["text"].strip()
-                        search_text = old_text.strip()
-                        
-                        # Solo comparar si ambos tienen contenido
-                        if not span_text or not search_text:
+                        if not span_text:
                             continue
+                        norm_span = normalize(span_text)
                         
-                        # Normalizar: quitar acentos para comparar
-                        import unicodedata
-                        def normalize(s):
-                            return unicodedata.normalize('NFD', s.lower()) \
-                                   .encode('ascii', 'ignore').decode('ascii')
-                        
-                        if normalize(search_text) in normalize(span_text) or \
-                           normalize(span_text) in normalize(search_text):
+                        # Verificar que la palabra buscada es una palabra 
+                        # completa dentro del span (no substring de otra palabra)
+                        import re
+                        pattern = r'\b' + re.escape(norm_search) + r'\b'
+                        if re.search(pattern, norm_span):
+                            # Encontrar posición aproximada de la palabra
+                            # usando el rect del span completo
                             bbox = span["bbox"]
-                            rect = pymupdf.Rect(bbox)
-                            rects.append(rect)
-                            print("[CatFileAPI] [Executor] Encontrado via fallback: '{}' en {}".format(
-                                span_text, rect))
+                            span_rect = pymupdf.Rect(bbox)
+                            
+                            # Calcular rect proporcional de la palabra
+                            words = span_text.split()
+                            norm_words = [normalize(w) for w in words]
+                            
+                            if norm_search in norm_words:
+                                word_idx = norm_words.index(norm_search)
+                                total_chars = sum(len(w) for w in words)
+                                if total_chars > 0:
+                                    chars_before = sum(len(words[i]) + 1 for i in range(word_idx))
+                                    word_chars = len(words[word_idx])
+                                    ratio_start = chars_before / total_chars
+                                    ratio_end = (chars_before + word_chars) / total_chars
+                                    
+                                    span_width = span_rect.x1 - span_rect.x0
+                                    word_rect = pymupdf.Rect(
+                                        span_rect.x0 + ratio_start * span_width,
+                                        span_rect.y0,
+                                        span_rect.x0 + ratio_end * span_width,
+                                        span_rect.y1
+                                    )
+                                    rects.append(word_rect)
+                                    print("[CatFileAPI] [Executor] Palabra '{}' encontrada en {}".format(
+                                        span_text, word_rect))
+                            break
         
         if not rects:
             raise ValueError("Texto '{}' no encontrado en página {}".format(
                 old_text, page_num + 1))
         
         for rect in rects:
-            print("[CatFileAPI] [Executor] Reemplazando '{}' por '{}' en {}".format(
-                old_text, new_text, rect))
-            
-            # Obtener tamaño de fuente del span original
-            fontsize = 12
+            # Obtener fontsize del span en esa área
+            fontsize = 11
             blocks = page.get_text("dict")["blocks"]
             for block in blocks:
                 if block.get("type") != 0:
@@ -786,16 +813,18 @@ class PDFAssistantExecutor:
             except:
                 bg_color = (1, 1, 1)
             
-            # Cubrir el texto original
+            # Cubrir solo la palabra
             page.draw_rect(rect, color=bg_color, fill=bg_color)
             
-            # Insertar nuevo texto con el mismo tamaño de fuente
+            # Insertar nueva palabra
             page.insert_text(
                 pymupdf.Point(rect.x0, rect.y1 - 1),
                 new_text,
                 fontsize=fontsize,
                 color=(0, 0, 0)
             )
+            print("[CatFileAPI] [Executor] '{}' → '{}' en {}".format(
+                old_text, new_text, rect))
 
     @staticmethod
     async def execute_add_text(doc, text: str, page_num: int, x: float = 50, y: float = 50,
