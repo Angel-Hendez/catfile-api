@@ -749,11 +749,9 @@ class PDFAssistantExecutor:
                             continue
                         norm_span = normalize(span_text)
                         
-                        # Verificar que la palabra buscada es una palabra 
-                        # completa dentro del span (no substring de otra palabra)
-                        import re
-                        pattern = r'\b' + re.escape(norm_search) + r'\b'
-                        if re.search(pattern, norm_span):
+                        # Verificar que norm_search aparece como palabra completa
+                        norm_words_list = re.split(r'[^a-z0-9]', norm_span)
+                        if norm_search in norm_words_list:
                             # Encontrar posición aproximada de la palabra
                             # usando el rect del span completo
                             bbox = span["bbox"]
