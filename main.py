@@ -1047,7 +1047,7 @@ async def chat_with_pdf(request: Request):
  
         pdf_text = pdf_storage[pdf_id]["text"]
  
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
         
         # Construir historial para Gemini
         chat_history = []
@@ -1134,7 +1134,7 @@ Si no puedes realizar la operación, devuelve {{"operations": [], "explanation":
 """.format(total_pages=total_pages, instruction=instruction)
  
         model = genai.GenerativeModel(
-            "gemini-2.5-flash",
+            "gemini-2.0-flash",
             generation_config={"response_mime_type": "application/json"}
         )
         response = model.generate_content(system_prompt)
