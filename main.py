@@ -532,7 +532,7 @@ async def ocr_extract(request: Request):
 
 @app.post("/summarize")
 async def summarize_text(request: Request):
-    """Resume un texto usando Gemini"""
+    """Resume un texto automáticamente sin IA"""
     try:
         body = await request.json()
         text = body.get("text")
@@ -542,15 +542,18 @@ async def summarize_text(request: Request):
         
         print("[CatFileAPI] Summarize: Resumiendo texto")
         
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # TODO: reemplazar resumen automático por Gemini cuando haya cuota disponible
+        sentences = text.split(". ")
+        num_sentences = len(sentences)
         
-        response = model.generate_content(
-            "Resume el siguiente texto en un párrafo breve, manteniendo "
-            "las ideas principales. Devuelve solo el resumen:\n\n" + text[:50000]
-        )
+        if num_sentences <= 5:
+            summary = text
+        else:
+            first_five = sentences[:5]
+            summary = ". ".join(first_five) + "."
         
         print("[CatFileAPI] Summarize: Resumen generado")
-        return {"summary": response.text}
+        return {"summary": summary}
         
     except HTTPException:
         raise
