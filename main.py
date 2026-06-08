@@ -720,19 +720,41 @@ class PDFAssistantExecutor:
     
     @staticmethod
     async def execute_edit_text(doc, old_text: str, new_text: str, page_num: int) -> None:
-        """Ejecuta reemplazo de texto"""
         page = doc[page_num]
         rects = page.search_for(old_text)
         
         if not rects:
-            raise ValueError("Texto '{}' no encontrado en página {}".format(old_text, page_num+1))
+            raise ValueError("Texto '{}' no encontrado en página {}".format(
+                old_text, page_num + 1))
         
         for rect in rects:
             print("[CatFileAPI] [Executor] Reemplazando '{}' por '{}' en página {}".format(
-                old_text, new_text, page_num+1))
-            page.add_redact_annot(rect, fill=(1, 1, 1))
-            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
-            page.insert_textbox(rect, new_text, fontsize=12, color=(0, 0, 0), align=0)
+                old_text, new_text, page_num + 1))
+            
+            # Detectar color de fondo del área
+            try:
+                clip = page.get_pixmap(clip=rect, alpha=False)
+                pixel = clip.pixel(0, 0)
+                if isinstance(pixel, int):
+                    gray = pixel / 255.0
+                    bg_color = (gray, gray, gray)
+                else:
+                    bg_color = tuple(c / 255.0 for c in pixel[:3])
+            except:
+                bg_color = (1, 1, 1)
+            
+            # Cubrir SOLO el texto con rectángulo del color de fondo
+            # Sin usar redactions que borran imágenes
+            page.draw_rect(rect, color=bg_color, fill=bg_color)
+            
+            # Insertar el nuevo texto en la misma posición
+            page.insert_textbox(
+                rect,
+                new_text,
+                fontsize=rect.height * 0.85,  # Ajustar al tamaño del rect
+                color=(0, 0, 0),
+                align=0
+            )
     
     @staticmethod
     async def execute_add_text(doc, text: str, page_num: int, x: float = 50, y: float = 50,
