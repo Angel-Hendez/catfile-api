@@ -731,6 +731,22 @@ class PDFAssistantExecutor:
             print("[CatFileAPI] [Executor] Reemplazando '{}' por '{}' en página {}".format(
                 old_text, new_text, page_num + 1))
             
+            print("[DEBUG] Rect del texto: x0={} y0={} x1={} y1={} width={} height={}".format(
+                rect.x0, rect.y0, rect.x1, rect.y1, 
+                rect.x1-rect.x0, rect.y1-rect.y0))
+            
+            # Listar imágenes en la página y sus posiciones
+            images = page.get_images(full=True)
+            for img in images:
+                xref = img[0]
+                img_rects = page.get_image_rects(xref)
+                for ir in img_rects:
+                    print("[DEBUG] Imagen xref={} en rect: x0={} y0={} x1={} y1={}".format(
+                        xref, ir.x0, ir.y0, ir.x1, ir.y1))
+                    # Verificar si se solapan
+                    overlap = rect.intersects(ir)
+                    print("[DEBUG] ¿Se solapan texto e imagen? {}".format(overlap))
+            
             # Detectar color de fondo del área
             try:
                 clip = page.get_pixmap(clip=rect, alpha=False)
