@@ -464,6 +464,34 @@ async def get_images(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/pdf/add-text")
+async def add_text_to_pdf(
+    file: UploadFile = File(...),
+    text: str = Form(...),
+    page_num: int = Form(0),
+    x: float = Form(50),
+    y: float = Form(50),
+    fontsize: float = Form(12)
+):
+    """Inserta texto en una posición específica del PDF"""
+    try:
+        print("[CatFileAPI] ADD-TEXT: página={}, x={}, y={}".format(page_num, x, y))
+        content = await file.read()
+        
+        pdf_bytes = await PDFAssistantService.add_text_service(
+            content, text, page_num, x, y, fontsize)
+        
+        output = io.BytesIO(pdf_bytes)
+        return StreamingResponse(
+            output,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=edited.pdf"}
+        )
+    except Exception as e:
+        print("[CatFileAPI] ADD-TEXT Error: {}".format(str(e)))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/ocr/extract")
 async def ocr_extract(request: Request):
     """Extrae texto de una imagen usando Gemini"""
