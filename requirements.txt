@@ -2,7 +2,7 @@ fastapi
 uvicorn
 pymupdf
 python-multipart
-google-generativeai
+google-cloud-aiplatform>=1.38.0
 requests
 httpx
 supabase

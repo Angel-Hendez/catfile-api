@@ -7,9 +7,13 @@ import io
 import uuid
 import os
 import base64
-import google.generativeai as genai
+import vertexai
+from vertexai.generative_models import GenerativeModel
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+vertexai.init(
+    project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
+    location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
+)
 
 app = FastAPI(title="CatFile API", description="API para edición profesional de PDFs 🐾")
 
@@ -505,7 +509,7 @@ async def ocr_extract(request: Request):
         
         print("[CatFileAPI] OCR: Extrayendo texto de imagen")
         
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = GenerativeModel("gemini-2.0-flash-001")
         
         image_data = base64.b64decode(image_base64)
         
@@ -542,7 +546,7 @@ async def summarize_text(request: Request):
         
         print("[CatFileAPI] Summarize: Resumiendo texto")
         
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = GenerativeModel("gemini-2.0-flash-001")
         
         response = model.generate_content(
             "Resume el siguiente texto en un párrafo breve, manteniendo "
@@ -946,22 +950,22 @@ class PDFAssistantExecutor:
             print("[CatFileAPI] [Executor] '{}' → '{}' en {}".format(
                 old_text, new_text, rect))
 
-   @staticmethod
-   async def execute_add_text(doc, text: str, page_num: int, x: float = 50,
-                            y: float = 50, fontsize: float = 12,
-                            color: str = "#000000") -> None:  # ✅
-    # Convertir hex "#RRGGBB" a tuple (r, g, b) que usa PyMuPDF (valores 0.0-1.0)
-    color = color.lstrip("#")
-    r = int(color[0:2], 16) / 255.0
-    g = int(color[2:4], 16) / 255.0
-    b = int(color[4:6], 16) / 255.0
-    
-    page = doc[page_num]
-    point = pymupdf.Point(x, y)
-    page.insert_text(point, text, fontsize=fontsize, color=(r, g, b))  # ✅
-    print("[CatFileAPI] [Executor] Texto '{}' insertado en página {} con color rgb({},{},{})".format(
-        text, page_num + 1, r, g, b))
-    
+    @staticmethod
+    async def execute_add_text(doc, text: str, page_num: int, x: float = 50,
+                                y: float = 50, fontsize: float = 12,
+                                color: str = "#000000") -> None:
+        # Convertir hex "#RRGGBB" a tuple (r, g, b) que usa PyMuPDF (valores 0.0-1.0)
+        color = color.lstrip("#")
+        r = int(color[0:2], 16) / 255.0
+        g = int(color[2:4], 16) / 255.0
+        b = int(color[4:6], 16) / 255.0
+        
+        page = doc[page_num]
+        point = pymupdf.Point(x, y)
+        page.insert_text(point, text, fontsize=fontsize, color=(r, g, b))
+        print("[CatFileAPI] [Executor] Texto '{}' insertado en página {} con color rgb({},{},{})".format(
+            text, page_num + 1, r, g, b))
+
     @staticmethod
     async def execute_delete_image(doc, page_num: int, image_index: int) -> None:
         """Ejecuta eliminación de imagen"""
@@ -1055,17 +1059,17 @@ class PDFAssistantService:
     
     @staticmethod
     async def add_text_service(pdf_content: bytes, text: str,
-                           page_num: int, x: float = 50,
-                           y: float = 50, fontsize: float = 12,
-                           color: str = "#000000") -> bytes:  # ✅
-    doc = pymupdf.open(stream=pdf_content, filetype="pdf")
-    await PDFAssistantService.executor.execute_add_text(
-        doc, text, page_num, x, y, fontsize, color)  # ✅
-    output = io.BytesIO()
-    doc.save(output, garbage=4, deflate=True)
-    doc.close()
-    output.seek(0)
-    return output.getvalue()
+                               page_num: int, x: float = 50,
+                               y: float = 50, fontsize: float = 12,
+                               color: str = "#000000") -> bytes:
+        doc = pymupdf.open(stream=pdf_content, filetype="pdf")
+        await PDFAssistantService.executor.execute_add_text(
+            doc, text, page_num, x, y, fontsize, color)
+        output = io.BytesIO()
+        doc.save(output, garbage=4, deflate=True)
+        doc.close()
+        output.seek(0)
+        return output.getvalue()
     
     @staticmethod
     async def delete_image_service(pdf_content: bytes, page_num: int, 
@@ -1151,7 +1155,7 @@ async def chat_with_pdf(request: Request):
  
         pdf_text = pdf_storage[pdf_id]["text"]
  
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = GenerativeModel("gemini-2.0-flash-001")
         
         # Construir historial para Gemini
         chat_history = []
@@ -1237,8 +1241,8 @@ Operaciones disponibles: delete_page, add_page, add_text, edit_text, reorder_pag
 Si no puedes realizar la operación, devuelve {{"operations": [], "explanation": "motivo"}}
 """.format(total_pages=total_pages, instruction=instruction)
  
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
+        model = GenerativeModel(
+            "gemini-2.0-flash-001",
             generation_config={"response_mime_type": "application/json"}
         )
         response = model.generate_content(system_prompt)
